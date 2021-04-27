@@ -42,6 +42,12 @@ client_secret = secrets.SPOTIPY_CLIENT_SECRET
 client_credentials_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
 sp = spotipy.Spotify(client_credentials_manager = client_credentials_manager)
 
+urn = 'spotify:artist:3jOstUTkEu2JkjvRdBA5Gu'
+
+artist = sp.artist(urn)
+print(artist)
+
+
 # create a month dict to use for date validation
 month_dict = {
     'january': '01',
@@ -228,7 +234,7 @@ class Song:
     def info(self):
         return self.title + ' by ' + self.artist + ' from the album ' + self.album
 
-    def export(self):
+    def export(self, database):
         # query = '''
         # SELECT Id, OrderDate, ShipName
         # FROM [Order]
@@ -361,6 +367,27 @@ def get_prev_hot100(date):
 
 baseurl = 'https://api.spotify.com'
 
+# artist_name = []
+# track_name = []
+# popularity = []
+# track_id = []
+# for i in range(50):
+#     track_results = sp.search(q='year:2018', type='track', limit=50, offset=i)
+#     # for i, t in enumerate(track_results['tracks']['items']):
+#     #     artist_name.append(t['artists'][0]['name'])
+#     #     track_name.append(t['name'])
+#     #     track_id.append(t['id'])
+#     #     popularity.append(t['popularity'])
+
+CACHE_FILENAME = "spotify_cache.json"
+
+SPOTIFY_CACHE = open_cache()
+
+# SPOTIFY_CACHE['test'] = track_results
+# save_cache(SPOTIFY_CACHE)
+
+print(len(SPOTIFY_CACHE['test']['tracks']['items']))
+
 ##################
 ## Testing Code ##
 ##################
@@ -368,12 +395,12 @@ baseurl = 'https://api.spotify.com'
 # hot100 = get_current_hot100()
 # print(hot100) # always shocked when this works :O
 
-date = 'June 2, 2001'
-print(validate_date(date))
-hot100_prev = get_prev_hot100(validate_date(date))
-print(hot100_prev)
-hot100_prev = get_prev_hot100(validate_date(date))
-print(hot100_prev['songs'][1])
+# date = 'June 2, 2001'
+# print(validate_date(date))
+# hot100_prev = get_prev_hot100(validate_date(date))
+# print(hot100_prev)
+# hot100_prev = get_prev_hot100(validate_date(date))
+# print(hot100_prev['songs'][1])
 
 # hot100_april13 = get_prev_hot100(date)
 # print(hot100_april13)
