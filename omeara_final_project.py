@@ -10,7 +10,7 @@ when bilboard started releasing Hot 100 charts), then scrape artist, track, and
 ranking data for that week from the Hot 100 chart.
 
 For each list, the program then calls data from the spotify API to summarize the
-top 100 for acousticness, dancability, energy, loudness, and valence. These five
+top 10 for acousticness, dancability, energy, loudness, and valence. These five
 values are then compared to the current day's Hot 100 chart and will be printed
 to demonstrate whether the Hot 100 list is more or less of each characteristic.
 
@@ -41,12 +41,6 @@ client_secret = secrets.SPOTIPY_CLIENT_SECRET
 
 client_credentials_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
 sp = spotipy.Spotify(client_credentials_manager = client_credentials_manager)
-
-urn = 'spotify:artist:3jOstUTkEu2JkjvRdBA5Gu'
-
-artist = sp.artist(urn)
-print(artist)
-
 
 # create a month dict to use for date validation
 month_dict = {
@@ -103,12 +97,7 @@ def save_cache(cache_dict):
     fw.write(dumped_json_cache)
     fw.close()
 
-# CACHE_FILENAME = "spotify_cache.json"
-
-# SPOTIFY_CACHE = open_cache()
-
 CACHE_FILENAME = "billboard_cache.json"
-
 BILLBOARD_CACHE = open_cache()
 
 #######################################
@@ -221,7 +210,8 @@ class Song:
         (e.g. happy, cheerful, euphoric), while tracks with low valence sound more
         negative (e.g. sad, depressed, angry).
     '''
-    def __init__(self, title, artist, album, acousticness=None, dancability=None, energy=None, loudness=None, valence=None):
+    def __init__(self, song_id, title, artist, album, acousticness=None, dancability=None, energy=None, loudness=None, valence=None):
+        self.id = song_id
         self.title = title
         self.artist = artist
         self.album = album
@@ -232,16 +222,18 @@ class Song:
         self.valence = valence
 
     def info(self):
-        return self.title + ' by ' + self.artist + ' from the album ' + self.album
+        return self.title + ' by ' + self.artist + ' from "' + self.album + '"'
 
-    def export(self, database):
-        # query = '''
-        # SELECT Id, OrderDate, ShipName
-        # FROM [Order]
-        # WHERE OrderDate < '2012-07-11'
-        # '''
-        # result = cursor.execute(query).fetchall()
-        pass
+    def export(self, dbtable):
+        insert_song = f'''
+            INSERT INTO "Songs" 
+            ("TrackTitle", "Artist", "Album", "Acoustic", "Dance", "Energy", "Loud", "Valence") 
+            VALUES ("{self.title}", "{self.artist}", "{self.album}", "{self.acousticness}", 
+            "{self.dancability}", "{self.energy}", "{self.loudness}", "{self.valence}"
+            );
+        '''
+        cur.execute(insert_song)
+        conn.commit()
 
 
 #########################################
@@ -278,7 +270,7 @@ def get_current_hot100():
     artist_names = soup.find_all('span',class_="chart-element__information__artist text--truncate color--secondary")
 
     rank = 1
-    for i in range(100):
+    for i in range(10):
         song_dict = {
             'rank': rank,
             'title': song_names[i].text.strip(),
@@ -337,6 +329,8 @@ def get_prev_hot100(date):
         }
     '''
     baseurl = 'https://www.billboard.com/charts/hot-100'
+    CACHE_FILENAME = "billboard_cache.json"
+    BILLBOARD_CACHE = open_cache()
     if date in BILLBOARD_CACHE.keys():
         print('using cache')
         return BILLBOARD_CACHE[date]
@@ -353,7 +347,7 @@ def get_prev_hot100(date):
         artist_names = soup.find_all('span', class_="chart-element__information__artist text--truncate color--secondary")
 
         rank = 1
-        for i in range(100):
+        for i in range(10):
             song_dict = {
                 'rank': rank,
                 'title': song_names[i].text,
@@ -365,7 +359,108 @@ def get_prev_hot100(date):
         save_cache(BILLBOARD_CACHE)
         return BILLBOARD_CACHE[date]
 
-baseurl = 'https://api.spotify.com'
+######################################
+## Fetching Data from Spotify's API ##
+######################################
+
+def create_query(title, artist):
+    ''' Takes a title and artist from Billboard and processes it as a meaningful spotify search query.
+
+    Keyword should only be the title and artist, limit to 10 observations
+    Split the artist name at a comma, if there is one, or at "Featuring" if that
+    phrase is included in the artist
+    Also cut out any text between quotation marks, if that exists (specifically ")
+    Parameters
+    ----------
+    title: str
+        The title of a track
+    artist: str
+        The artist(s) that produced the track
+
+    Returns
+    -------
+    query: str
+        The search query for spotify
+    '''
+    query = None
+    artist_rev = artist.lower()
+    if "featuring" in artist_rev:
+        art_list = artist_rev.split(' featuring')
+        artist_rev = art_list[0]
+    if "," in artist:
+        art_list = artist_rev.split(',')
+        artist_rev = art_list[0]
+    if '"' in artist:
+        art_list = artist_rev.split('"')
+        artist_rev = art_list[0]
+
+    query = title.lower() + " " + artist_rev
+    return query
+
+def spotify_search(query):
+    ''' Searches spotify for tracks based on specified keywords, processed in the create_query function.
+
+    Need to pull the Spotify IDs for the top song result with the EXACT name (and check that popularity is >20?),
+    then use those in a audio features query.
+
+    Information is returned as a Song class object
+
+    Parameters
+    ----------
+    keywords: str
+        The search query for spotify
+
+    Returns
+    -------
+    spotify_song: Song
+        A Song class object with required attributes specified
+    '''
+    CACHE_FILENAME = "spotify_cache.json"
+    SPOTIFY_CACHE = open_cache()
+
+    if query in SPOTIFY_CACHE.keys():
+        print('using cache')
+    else:
+        print('scraping data')
+        SPOTIFY_CACHE[query] = sp.search(q=query)
+        save_cache(SPOTIFY_CACHE)
+    raw_results = SPOTIFY_CACHE[query]
+    song_id = raw_results['tracks']['items'][0]['id']
+    title = raw_results['tracks']['items'][0]['name']
+    artist = raw_results['tracks']['items'][0]['artists'][0]['name']
+    album = raw_results['tracks']['items'][0]['album']['name']
+    spotify_song = Song(song_id, title, artist, album)
+    return spotify_song
+
+def get_song_attributes(song_list):
+    ''' Takes Song class objects and updates to include audio attributes from Spotify
+
+    Parameters
+    ----------
+    song_list: list of song objects
+        The search query for spotify
+
+    Returns
+    -------
+    song_list: list of song objects
+        An updated list of Song class object with all audio features specified
+    '''
+    id_list = []
+    for song in song_list:
+        id_list.append(song.id)
+    features = sp.audio_features(id_list)
+    for i in range(len(song_list)):
+        song_list[i].acousticness = features[i]['acousticness']
+        song_list[i].dancability = features[i]['danceability']
+        song_list[i].energy = features[i]['energy']
+        song_list[i].loudness = features[i]['loudness']
+        song_list[i].valence = features[i]['valence']
+    return song_list
+
+
+##################
+## Testing Code ##
+##################
 
 # artist_name = []
 # track_name = []
@@ -373,24 +468,25 @@ baseurl = 'https://api.spotify.com'
 # track_id = []
 # for i in range(50):
 #     track_results = sp.search(q='year:2018', type='track', limit=50, offset=i)
-#     # for i, t in enumerate(track_results['tracks']['items']):
-#     #     artist_name.append(t['artists'][0]['name'])
-#     #     track_name.append(t['name'])
-#     #     track_id.append(t['id'])
-#     #     popularity.append(t['popularity'])
+    # for i, t in enumerate(track_results['tracks']['items']):
+    #     artist_name.append(t['artists'][0]['name'])
+    #     track_name.append(t['name'])
+    #     track_id.append(t['id'])
+    #     popularity.append(t['popularity'])
 
-CACHE_FILENAME = "spotify_cache.json"
+# urn = 'spotify:artist:3jOstUTkEu2JkjvRdBA5Gu'
 
-SPOTIFY_CACHE = open_cache()
+# artist = sp.artist(urn)
+# print(artist)
+
+# CACHE_FILENAME = "spotify_cache.json"
+
+# SPOTIFY_CACHE = open_cache()
 
 # SPOTIFY_CACHE['test'] = track_results
 # save_cache(SPOTIFY_CACHE)
 
-print(len(SPOTIFY_CACHE['test']['tracks']['items']))
-
-##################
-## Testing Code ##
-##################
+# print(len(SPOTIFY_CACHE['test']['tracks']['items']))
 
 # hot100 = get_current_hot100()
 # print(hot100) # always shocked when this works :O
@@ -401,10 +497,43 @@ print(len(SPOTIFY_CACHE['test']['tracks']['items']))
 # print(hot100_prev)
 # hot100_prev = get_prev_hot100(validate_date(date))
 # print(hot100_prev['songs'][1])
+# CACHE_FILENAME = "spotify_cache.json"
+# SPOTIFY_CACHE = open_cache()
+# test_query = create_query(hot100_prev['songs'][0]['title'], hot100_prev['songs'][0]['artist'])
+# print(test_query)
+
+# search_test = spotify_search(test_query)
+# print(search_test.info())
+
+# search_list_test = [search_test]
+# features = get_song_attributes(search_list_test)
+# print(features[0].energy)
 
 # hot100_april13 = get_prev_hot100(date)
 # print(hot100_april13)
 
 if __name__ == "__main__":
-    pass
-    # current_hot100 = get_current_hot100()
+    current_hot100 = get_current_hot100()
+    date = 'November 13, 2005'
+    hot100_prev = get_prev_hot100(validate_date(date))
+    CACHE_FILENAME = "spotify_cache.json"
+    SPOTIFY_CACHE = open_cache()
+
+    song_list = []
+    for song in hot100_prev['songs']:
+        test_query = create_query(song['title'], song['artist'])
+        song_result = spotify_search(test_query)
+        song_list.append(song_result)
+    song_list_full = get_song_attributes(song_list)
+    for song in song_list_full:
+        print(song.info(), song.valence)
+        song.export('Songs')
+
+    # insert_song = f'''
+    #     INSERT INTO Songs
+    #     ("TrackTitle", "Artist", "Album", "Acoustic", "Dance", "Energy", "Loud", "Valence") 
+    #     VALUES ({song[0].title}, {song[0].artist}, {self.album}, {self.acousticness}, 
+    #     {self.dancability}, {self.energy}, {self.loudness}, {self.valence})
+    # '''
+    # cur.execute(insert_song)
+    # conn.commit()
