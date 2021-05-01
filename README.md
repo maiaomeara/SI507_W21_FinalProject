@@ -1,8 +1,8 @@
 # si507-finalproject: Spotify Time Capsule
-Name: Maia O’Meara
-Uniqname: maiao
-Course: SI 507.002
-Assignment: Final Project Submission
+Name: Maia O’Meara //
+Uniqname: maiao //
+Course: SI 507.002 //
+Assignment: Final Project Submission //
 
 This program request user input of a date, then scrapes artist, track, and ranking data for that week from the Hot 100 chart.
 
@@ -13,6 +13,7 @@ It then asks if the user would like to see a radar chart of the data, in which c
 Finally, it allows a user to enter a ranking number to pull up the full Billboard list for more information.
 
 **Required Programs**
+
 import json
 import requests
 import webbrowser
@@ -27,6 +28,7 @@ In addition, the user needs to create a Spotify Developer Account (instructions 
 Billboard is easily scrapable with no necessary authorization.
 
 **Interaction**
+
 The interactive elements for this project are all controlled through the command line. The program first requests a date and, based on this information, pulls a list of the top 10 songs for that date off of Billboard’s website (display 1). 
 
 Then, the program compares those data to the current top 10 songs and presents a text summary of the differences between those songs and the ones you just pulled with a past date (display 2). 
