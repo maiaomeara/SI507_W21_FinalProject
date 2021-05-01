@@ -414,6 +414,9 @@ def create_query(title, artist):
     if '/' in title:
         title_list = title_rev.split('/')
         title_rev = title_list[0]
+    if '!' in title:
+        title_list = title_rev.split('!')
+        title_rev = title_list[0]
 
     query = title_rev + " " + artist_rev
     return query
