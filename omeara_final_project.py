@@ -10,17 +10,19 @@ when bilboard started releasing Hot 100 charts), then scrape artist, track, and
 ranking data for that week from the Hot 100 chart.
 
 For each list, the program then calls data from the spotify API to summarize the
-top 10 for acousticness, danceability, energy, loudness, and valence. These five
-values are then compared to the current day's Hot 100 chart and will be printed
+top 10 for acousticness, danceability, energy, loudness, and valence. It prints
+the songs in order, then provides a comparison list of these five values versus
+the current day's Hot 100 chart. These are displayed below the list
 to demonstrate whether the Hot 100 list is more or less of each characteristic.
 
+It then asks if the user would like to see a radar chart of the data, in which case
+they can enter "yes" to pull up a chart in their browser.
+
 Finally, it prints the top 10 tracks in order for the given date and allows a user
-to enter a number to pull up the artist's spotify page for more information.
+to enter a number to pull up the full Billboard list for more information.
 
 Data are cached in a json file, with summary data and track info saved in a SQLite
 database.
-
-Goal to use the Flask app to display results and request user input in HTML, but tbd on that.
 '''
 ## references:  Code influenced by/borrowed from github
 ##              users ZiqiLii and plamare/spotipy
@@ -63,6 +65,8 @@ month_dict = {
 ## Setting up Caching ##
 ########################
 
+CACHE_FILENAME = "billboard_cache.json"
+
 def open_cache():
     ''' opens the cache file if it exists and loads the JSON into
     a dictionary, which it then returns.
@@ -98,7 +102,6 @@ def save_cache(cache_dict):
     fw.write(dumped_json_cache)
     fw.close()
 
-CACHE_FILENAME = "billboard_cache.json"
 BILLBOARD_CACHE = open_cache()
 
 #######################################
@@ -342,8 +345,6 @@ def get_prev_hot100(date):
         }
     '''
     baseurl = 'https://www.billboard.com/charts/hot-100'
-    CACHE_FILENAME = "billboard_cache.json"
-    BILLBOARD_CACHE = open_cache()
     if date in BILLBOARD_CACHE.keys():
         print('using cache')
         return BILLBOARD_CACHE[date]
@@ -561,8 +562,8 @@ def plot_song_attributes(attributes):
             attr_values=[attributes['acousticness'], attributes['danceability'], attributes['energy'], attributes['valence']],
             attr_labels=['Acousticness','Danceability','Energy', 'Valence']))
     song_fig = px.line_polar(song_data, r='attr_values', theta='attr_labels', line_close=True)
-    song_fig.write_html("attributes.html", auto_open=True)
-
+    # song_fig.write_html("attributes.html", auto_open=True)
+    song_fig.show()
 
 
 if __name__ == "__main__":
@@ -576,7 +577,6 @@ if __name__ == "__main__":
         current_song_list.append(song_data)
     current_song_list_full = get_song_attributes(current_song_list)
     current_song_attributes = average_attributes(current_song_list_full)
-    # print(current_song_attributes)
 
     # Starting program
     print('-------------------------------------')
@@ -643,18 +643,18 @@ if __name__ == "__main__":
             elif comp_results['valence'] == 0:
                 print(f"* EQUALLY happy (average valence score = {prev_song_attributes['valence']})")
             print(' ')
-            print('-----------------------------------------------------------------------------')
-            print(' ')
             plot_request = input("Would you like to see a plot of these attributes? [Enter 'yes' or 'no'] ")
             if plot_request.lower() == 'yes':
                 plot_song_attributes(prev_song_attributes)
-
+            print('-----------------------------------------------------------------------------')
+            print(' ')
             while True:
                 item_num = input("Enter a rank number to pull up the full Hot 100 list, another date to search, or 'exit' to end this session: ")
                 if item_num.isnumeric():
                     url = 'https://www.billboard.com/charts/hot-100/'+validate_date(date_input)
                     webbrowser.open(url)
-                    quit()
+                    date_input = input("Please enter a date in the format 'Month DD, YYYY' or 'Exit' to end the program: ")
+                    break
                 else:
                     date_input = item_num
                     break
