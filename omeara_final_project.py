@@ -30,16 +30,17 @@ import json
 import requests
 import webbrowser
 import sqlite3
-import flask
 from bs4 import BeautifulSoup
+import plotly.express as px
+import pandas as pd
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import secrets
 
-client_id = secrets.SPOTIPY_CLIENT_ID
-client_secret = secrets.SPOTIPY_CLIENT_SECRET
+cid = secrets.SPOTIPY_CLIENT_ID
+c_secret = secrets.SPOTIPY_CLIENT_SECRET
 
-client_credentials_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
+client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=c_secret)
 sp = spotipy.Spotify(client_credentials_manager = client_credentials_manager)
 
 # create a month dict to use for date validation
@@ -105,7 +106,6 @@ BILLBOARD_CACHE = open_cache()
 #######################################
 
 conn = sqlite3.connect('Spotify_Database.sqlite')
-
 cur = conn.cursor()
 
 drop_songs = '''
@@ -226,18 +226,23 @@ class Song:
 
     def export(self, dbtable):
         '''
-        How to check if song is in database or not...?
+        Checks whether a song is in the database already and, if not, adds it
         '''
-        
-        
-        insert_song = f'''
-            INSERT INTO "Songs" 
-            ("TrackTitle", "Artist", "Album", "Acoustic", "Dance", "Energy", "Loud", "Valence") 
-            VALUES ("{self.title}", "{self.artist}", "{self.album}", "{self.acousticness}", 
-            "{self.danceability}", "{self.energy}", "{self.loudness}", "{self.valence}"
-            );
+        query = f'''
+        SELECT COUNT(DISTINCT TrackTitle)
+        FROM [Songs]
+        WHERE TrackTitle = "{self.title}" AND Artist = "{self.artist}"
         '''
-        cur.execute(insert_song)
+        result = cur.execute(query).fetchall()
+        if result[0][0] == 0:
+            insert_song = f'''
+                INSERT INTO "Songs" 
+                ("TrackTitle", "Artist", "Album", "Acoustic", "Dance", "Energy", "Loud", "Valence") 
+                VALUES ("{self.title}", "{self.artist}", "{self.album}", "{self.acousticness}", 
+                "{self.danceability}", "{self.energy}", "{self.loudness}", "{self.valence}"
+                );
+            '''
+            cur.execute(insert_song)
         conn.commit()
 
 
@@ -301,15 +306,18 @@ def validate_date(date):
         0 if invalid date
     '''
     valid = 0
-    date_valid = date.split(' ')
-    if len(date_valid[2])==4 and date_valid[2].isnumeric():
-        day = date_valid[1][:-1]
-        if day.isnumeric() and int(day)<32:
-            if len(day)==1:
-                day = '0' + day
-            if date_valid[0].lower() in month_dict.keys():
-                valid = date_valid[2]+'-'+month_dict[date_valid[0].lower()]+'-'+day
-    return valid
+    try:
+        date_valid = date.split(' ')
+        if len(date_valid[2])==4 and date_valid[2].isnumeric():
+            day = date_valid[1][:-1]
+            if day.isnumeric() and int(day)<32:
+                if len(day)==1:
+                    day = '0' + day
+                if date_valid[0].lower() in month_dict.keys():
+                    valid = date_valid[2]+'-'+month_dict[date_valid[0].lower()]+'-'+day
+        return valid
+    except:
+        return valid
 
 def get_prev_hot100(date):
     ''' Creates a list of the top 10 songs for the specified date based on the billboard hot 100
@@ -389,6 +397,7 @@ def create_query(title, artist):
     '''
     query = None
     artist_rev = artist.lower()
+    title_rev = title.lower()
     if "featuring" in artist_rev:
         art_list = artist_rev.split(' featuring')
         artist_rev = art_list[0]
@@ -398,8 +407,14 @@ def create_query(title, artist):
     if '"' in artist:
         art_list = artist_rev.split('"')
         artist_rev = art_list[0]
+    if '"' in title:
+        title_list = title_rev.split('"')
+        title_rev = title_list[0]
+    if '/' in title:
+        title_list = title_rev.split('/')
+        title_rev = title_list[0]
 
-    query = title.lower() + " " + artist_rev
+    query = title_rev + " " + artist_rev
     return query
 
 def spotify_search(query):
@@ -420,16 +435,14 @@ def spotify_search(query):
     spotify_song: Song
         A Song class object with required attributes specified
     '''
-    CACHE_FILENAME = "spotify_cache.json"
-    SPOTIFY_CACHE = open_cache()
 
-    if query in SPOTIFY_CACHE.keys():
+    if query in BILLBOARD_CACHE.keys():
         print('using cache')
     else:
         print('scraping data')
-        SPOTIFY_CACHE[query] = sp.search(q=query)
-        save_cache(SPOTIFY_CACHE)
-    raw_results = SPOTIFY_CACHE[query]
+        BILLBOARD_CACHE[query] = sp.search(q=query)
+        save_cache(BILLBOARD_CACHE)
+    raw_results = BILLBOARD_CACHE[query]
     song_id = raw_results['tracks']['items'][0]['id']
     title = raw_results['tracks']['items'][0]['name']
     artist = raw_results['tracks']['items'][0]['artists'][0]['name']
@@ -527,6 +540,30 @@ def compare_attributes(attributes_1, attributes_2):
     }
     return comp_attributes
 
+def plot_song_attributes(attributes):
+    '''Takes two dictionaries of attributes and compares their acousticness, danceability,
+    energy, loudness, and valence.
+
+    The second attribute dictionary is subtracted from the first. For all but loudness, a
+    negative value means that the second dictionary is more of the characteristic than the first.
+    For loudness, which is measured in decibles a positive value implies that the second value is
+    louder than the first and a negative value implies that is is quieter.
+
+    Parameters
+    ----------
+    attributes: dictionaries of song attributes
+
+    Returns
+    -------
+    attributes_plot: a radar plot of song attributes
+    '''
+    song_data = pd.DataFrame(dict(
+            attr_values=[attributes['acousticness'], attributes['danceability'], attributes['energy'], attributes['valence']],
+            attr_labels=['Acousticness','Danceability','Energy', 'Valence']))
+    song_fig = px.line_polar(song_data, r='attr_values', theta='attr_labels', line_close=True)
+    song_fig.write_html("attributes.html", auto_open=True)
+
+
 
 if __name__ == "__main__":
     # Accessing comparison data:
@@ -547,21 +584,23 @@ if __name__ == "__main__":
     print('-------------------------------------')
     date_input = input("Please enter a date in the format Month DD, YYYY: ")
 
-    if validate_date(date_input)==0:
-        print("I'm sorry, that date is invalid.")
-        date_input = input("Please enter a date in the format 'Month DD, YYYY' or 'Exit' to end the program: ")
-
     while True:
         if date_input.lower() == 'exit':
             print('Bye!')
             quit()
+        elif validate_date(date_input)==0:
+            print("I'm sorry, that date is invalid.")
+            date_input = input("Please enter a date in the format 'Month DD, YYYY' or 'Exit' to end the program: ")
         else:
             prev_hot100 = get_prev_hot100(validate_date(date_input))
             song_list = []
             for song in prev_hot100['songs']:
                 prev_query = create_query(song['title'], song['artist'])
-                prev_song_data = spotify_search(prev_query)
-                song_list.append(prev_song_data)
+                try:
+                    prev_song_data = spotify_search(prev_query)
+                    song_list.append(prev_song_data)
+                except:
+                    continue
             song_list_full = get_song_attributes(song_list)
             print(' ')
             print(f'Here are the top 10 songs from the Billboard Hot 100 list for {date_input}!')
@@ -570,43 +609,45 @@ if __name__ == "__main__":
                 print('[' + str(song_list_full.index(song)+1) + '] ' + song.info())
             print('-----------------------------------------------------------------------------')
             prev_song_attributes = average_attributes(song_list_full)
-            comparison = compare_attributes(current_song_attributes, prev_song_attributes)
+            comp_results = compare_attributes(current_song_attributes, prev_song_attributes)
             print(' ')
             print(f'Compared to the current Hot 100 list, songs from {date_input} are:')
-            if comparison['acousticness'] > 0:
+            if comp_results['acousticness'] > 0:
                 print(f"* LESS acoustic (average acousticness score = {prev_song_attributes['acousticness']})")
-            elif comparison['acousticness'] < 0:
+            elif comp_results['acousticness'] < 0:
                 print(f"* MORE acoustic (average acousticness score = {prev_song_attributes['acousticness']})")
-            elif comparison['acousticness'] == 0:
+            elif comp_results['acousticness'] == 0:
                 print(f"* EQUALLY acoustic (average acousticness score = {prev_song_attributes['acousticness']})")
-            if comparison['danceability'] > 0:
+            if comp_results['danceability'] > 0:
                 print(f"* LESS danceable (average danceability score = {prev_song_attributes['danceability']})")
-            elif comparison['danceability'] < 0:
+            elif comp_results['danceability'] < 0:
                 print(f"* MORE danceable (average danceability score = {prev_song_attributes['danceability']})")
-            elif comparison['danceability'] == 0:
+            elif comp_results['danceability'] == 0:
                 print(f"* EQUALLY danceable (average danceability score = {prev_song_attributes['danceability']})")
-            if comparison['energy'] > 0:
+            if comp_results['energy'] > 0:
                 print(f"* LESS energetic (average energy score = {prev_song_attributes['energy']})")
-            elif comparison['energy'] < 0:
+            elif comp_results['energy'] < 0:
                 print(f"* MORE energetic (average energy score = {prev_song_attributes['energy']})")
-            elif comparison['energy'] == 0:
+            elif comp_results['energy'] == 0:
                 print(f"* EQUALLY energetic (average energy score = {prev_song_attributes['energy']})")
-            if comparison['loudness'] < 0:
+            if comp_results['loudness'] < 0:
                 print(f"* LESS loud (average volume in decibels = {prev_song_attributes['loudness']})")
-            elif comparison['loudness'] > 0:
+            elif comp_results['loudness'] > 0:
                 print(f"* MORE loud (average volume in decibels = {prev_song_attributes['loudness']})")
-            elif comparison['loudness'] == 0:
+            elif comp_results['loudness'] == 0:
                 print(f"* EQUALLY loud (average volume in decibels = {prev_song_attributes['loudness']})")
-            if comparison['valence'] > 0:
+            if comp_results['valence'] > 0:
                 print(f"* LESS happy (average valence score = {prev_song_attributes['valence']})")
-            elif comparison['valence'] < 0:
+            elif comp_results['valence'] < 0:
                 print(f"* MORE happy (average valence score = {prev_song_attributes['valence']})")
-            elif comparison['valence'] == 0:
+            elif comp_results['valence'] == 0:
                 print(f"* EQUALLY happy (average valence score = {prev_song_attributes['valence']})")
-            print(prev_song_attributes)
-            print(current_song_attributes)
+            print(' ')
             print('-----------------------------------------------------------------------------')
-            print(' ') 
+            print(' ')
+            plot_request = input("Would you like to see a plot of these attributes? [Enter 'yes' or 'no'] ")
+            if plot_request.lower() == 'yes':
+                plot_song_attributes(prev_song_attributes)
 
             while True:
                 item_num = input("Enter a rank number to pull up the full Hot 100 list, another date to search, or 'exit' to end this session: ")
@@ -618,20 +659,9 @@ if __name__ == "__main__":
                     date_input = item_num
                     break
 
-
 '''
 TO DO:
-Create a function that calculates average attribute scores for a set of songs (use SQL?)
-Create a comparison function
 Set up Billboard relational database table
-
-Need something to check if an inserted song is already in the database!
-
-Build interactive interface, including:
-Table of top 10 results (in Flask?)
-Comparison between current and specific date values
-Radar graph
-webbrowser link to Spotify artist page
 
 Update Read Me file
 
