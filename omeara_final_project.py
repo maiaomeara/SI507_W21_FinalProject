@@ -6,7 +6,7 @@
 '''
 Purpose:
 This program aims to request user input of a date (anytime after August 4, 1958,
-when bilboard started releasing Hot 100 charts), then scrape artist, track, and
+when billboard started releasing Hot 100 charts), then scrape artist, track, and
 ranking data for that week from the Hot 100 chart.
 
 For each list, the program then calls data from the spotify API to summarize the
